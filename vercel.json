@@ -1,0 +1,20 @@
+{
+  "crons": [
+    {
+      "path": "/api/taf",
+      "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/taf",
+      "schedule": "30 9 * * *"
+    },
+    {
+      "path": "/api/taf",
+      "schedule": "30 15 * * *"
+    },
+    {
+      "path": "/api/taf",
+      "schedule": "30 21 * * *"
+    }
+  ]
+}
