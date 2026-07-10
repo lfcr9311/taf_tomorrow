@@ -69,3 +69,7 @@ async def root():
     """Health check"""
     return {'status': 'ok', 'message': 'API Tomorrow.io TAF - Vercel Cron'}
 
+@app.get("/api/teste")
+async def teste():
+
+    return print("Teste de endpoint /api/teste executado com sucesso!")
