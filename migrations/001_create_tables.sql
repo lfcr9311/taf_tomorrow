@@ -2,8 +2,12 @@
 -- Description: Create airports and tafs tables
 -- Created: 2024-07-13
 
+-- Drop existing tables if they exist (for clean migration)
+DROP TABLE IF EXISTS tafs CASCADE;
+DROP TABLE IF EXISTS airports CASCADE;
+
 -- Create airports table
-CREATE TABLE IF NOT EXISTS airports (
+CREATE TABLE airports (
     id SERIAL PRIMARY KEY,
     iata_code VARCHAR(10) UNIQUE NOT NULL,
     city VARCHAR(100),
@@ -13,10 +17,10 @@ CREATE TABLE IF NOT EXISTS airports (
 );
 
 -- Create index on iata_code for faster queries
-CREATE INDEX IF NOT EXISTS idx_airports_iata_code ON airports(iata_code);
+CREATE INDEX idx_airports_iata_code ON airports(iata_code);
 
 -- Create tafs table
-CREATE TABLE IF NOT EXISTS tafs (
+CREATE TABLE tafs (
     id SERIAL PRIMARY KEY,
     airport_id INTEGER NOT NULL,
     timestamp TIMESTAMP NOT NULL,
@@ -27,10 +31,10 @@ CREATE TABLE IF NOT EXISTS tafs (
 );
 
 -- Create indexes for better query performance
-CREATE INDEX IF NOT EXISTS idx_tafs_airport_id ON tafs(airport_id);
-CREATE INDEX IF NOT EXISTS idx_tafs_source ON tafs(source);
-CREATE INDEX IF NOT EXISTS idx_tafs_created_at ON tafs(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_tafs_timestamp ON tafs(timestamp DESC);
+CREATE INDEX idx_tafs_airport_id ON tafs(airport_id);
+CREATE INDEX idx_tafs_source ON tafs(source);
+CREATE INDEX idx_tafs_created_at ON tafs(created_at DESC);
+CREATE INDEX idx_tafs_timestamp ON tafs(timestamp DESC);
 
 -- Create composite index for common queries
-CREATE INDEX IF NOT EXISTS idx_tafs_airport_source ON tafs(airport_id, source);
+CREATE INDEX idx_tafs_airport_source ON tafs(airport_id, source);
