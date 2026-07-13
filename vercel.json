@@ -1,35 +1,35 @@
 {
   "crons": [
     {
-      "path": "/taf/single",
+      "path": "/api/taf/single",
       "schedule": "30 3 * * *"
     },
     {
-      "path": "/taf/single",
+      "path": "/api/taf/single",
       "schedule": "30 9 * * *"
     },
     {
-      "path": "/taf/single",
+      "path": "/api/taf/single",
       "schedule": "30 15 * * *"
     },
     {
-      "path": "/taf/single",
+      "path": "/api/taf/single",
       "schedule": "30 21 * * *"
     },
     {
-      "path": "/taf/cron/fetch",
+      "path": "/api/taf/cron/fetch",
       "schedule": "0 0 * * *"
     },
     {
-      "path": "/taf/cron/fetch",
+      "path": "/api/taf/cron/fetch",
       "schedule": "0 6 * * *"
     },
     {
-      "path": "/taf/cron/fetch",
+      "path": "/api/taf/cron/fetch",
       "schedule": "0 12 * * *"
     },
     {
-      "path": "/taf/cron/fetch",
+      "path": "/api/taf/cron/fetch",
       "schedule": "0 18 * * *"
     }
   ]

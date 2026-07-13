@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import json
 import os
 from dotenv import load_dotenv
-from database import init_db, save_taf, add_airport, get_airport_id
+from database import init_db, save_taf_tomorrow, save_taf_redemet, add_airport, get_airport_id
 
 load_dotenv()
 
@@ -50,7 +50,7 @@ def init_airports():
 
 async def fetch_taf_tomorrow(location: str):
     """
-    Faz GET da API Tomorrow.io TAF para um aeroporto específico
+    Busca TAF da API Tomorrow.io e salva em taf_tomorrow
     """
     try:
         api_url = os.getenv('TOMORROW_IO_API_URL')
@@ -74,17 +74,15 @@ async def fetch_taf_tomorrow(location: str):
         taf_text = data.get('TAF', '')
         airport_id = get_airport_id(location)
 
+        db_id = None
         if taf_text and airport_id:
-            db_id = save_taf(timestamp, taf_text, airport_id, 'tomorrow')
-        else:
-            db_id = None
+            db_id = save_taf_tomorrow(timestamp, taf_text, airport_id)
 
         return {
             'timestamp': timestamp,
             'status': 'sucesso',
             'location': location,
             'status_code': response.status_code,
-            'data': data,
             'database_id': db_id
         }
 
@@ -98,14 +96,12 @@ async def fetch_taf_tomorrow(location: str):
 
 async def fetch_taf_redemet(location: str, data_ini: str = None, data_fim: str = None):
     """
-    Faz GET da API REDEMET TAF para um aeroporto específico
+    Busca TAF da API REDEMET e salva em taf_redemet
 
     Args:
         location: código ICAO do aeroporto (ex: SBBR, SBGL)
         data_ini: data inicial no formato YYYYMMDDHH (opcional)
         data_fim: data final no formato YYYYMMDDHH (opcional)
-
-    Documentação: https://api-redemet.decea.mil.br/
     """
     try:
         api_url = os.getenv('REDEMET_API_URL', 'https://api-redemet.decea.mil.br/mensagens/taf')
@@ -116,11 +112,9 @@ async def fetch_taf_redemet(location: str, data_ini: str = None, data_fim: str =
                 'timestamp': datetime.now(timezone.utc).isoformat(),
                 'status': 'erro',
                 'location': location,
-                'source': 'redemet',
                 'error': 'REDEMET_API_KEY não configurada no .env'
             }
 
-        # Construir URL com localidades
         url = f"{api_url}/{location}"
 
         params = {
@@ -147,17 +141,22 @@ async def fetch_taf_redemet(location: str, data_ini: str = None, data_fim: str =
         # Processar resposta da REDEMET
         if data.get('status') and data.get('data') and data.get('data').get('data'):
             tafs_list = data.get('data').get('data')
-
             results = []
             airport_id = get_airport_id(location)
 
             for taf_record in tafs_list:
                 taf_text = taf_record.get('mens', '')
 
+                db_id = None
                 if taf_text and airport_id:
-                    db_id = save_taf(timestamp, taf_text, airport_id, 'redemet')
-                else:
-                    db_id = None
+                    db_id = save_taf_redemet(
+                        timestamp,
+                        taf_text,
+                        airport_id,
+                        taf_record.get('validade_inicial'),
+                        taf_record.get('validade_final'),
+                        taf_record.get('recebimento')
+                    )
 
                 results.append({
                     'taf_data': taf_text,
@@ -171,8 +170,6 @@ async def fetch_taf_redemet(location: str, data_ini: str = None, data_fim: str =
                 'timestamp': timestamp,
                 'status': 'sucesso',
                 'location': location,
-                'source': 'redemet',
-                'status_code': response.status_code,
                 'total_records': len(tafs_list),
                 'data': results
             }
@@ -181,8 +178,6 @@ async def fetch_taf_redemet(location: str, data_ini: str = None, data_fim: str =
                 'timestamp': timestamp,
                 'status': 'sucesso',
                 'location': location,
-                'source': 'redemet',
-                'status_code': response.status_code,
                 'message': 'Nenhum TAF encontrado',
                 'data': []
             }
@@ -192,7 +187,6 @@ async def fetch_taf_redemet(location: str, data_ini: str = None, data_fim: str =
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'status': 'erro',
             'location': location,
-            'source': 'redemet',
             'error': str(error)
         }
 

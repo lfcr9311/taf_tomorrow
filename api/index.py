@@ -43,7 +43,7 @@ async def ping():
     """Verificar status da API"""
     return {'status': 'healthy', 'service': 'taf-service'}
 
-@app.get("/taf/single")
+@app.get("/api/taf/single")
 async def get_single_taf():
     """
     Busca TAF do aeroporto padrão (SBRJ) na Tomorrow.io
@@ -69,7 +69,7 @@ async def get_single_taf():
             }
         )
 
-@app.get("/taf/history")
+@app.get("/api/taf/history")
 async def get_taf_history(limit: int = 10):
     """
     Lista os últimos TAFs salvos no banco de dados
@@ -96,89 +96,185 @@ async def get_taf_history(limit: int = 10):
             }
         )
 
-@app.get("/taf/providers/tomorrow")
+@app.get("/api/taf/tomorrow")
 async def fetch_tomorrow_provider():
     """
-    Busca TAF de 30 aeroportos da API Tomorrow.io
+    Busca TAF da API Tomorrow.io para aeroportos do arquivo aiports.txt
     """
-    from main import fetch_all_airports_tomorrow
-    results = await fetch_all_airports_tomorrow()
+    import os
+    from main import fetch_taf_tomorrow, read_airports_from_file, add_airport, get_airport_id
 
-    success_count = sum(1 for r in results if r.get('status') == 'sucesso')
-    error_count = sum(1 for r in results if r.get('status') == 'erro')
+    file_path = 'aiports.txt'
 
-    return JSONResponse(
-        status_code=200,
-        content={
-            'success': True,
-            'provider': 'tomorrow.io',
-            'total_airports': 30,
-            'success': success_count,
-            'error': error_count,
-            'results': results
-        }
-    )
+    if not os.path.exists(file_path):
+        return JSONResponse(
+            status_code=404,
+            content={
+                'success': False,
+                'error': f'Arquivo não encontrado: {file_path}'
+            }
+        )
 
-@app.get("/taf/providers/redemet")
+    try:
+        airports = read_airports_from_file(file_path)
+
+        # Inicializar aeroportos
+        for airport_code in airports:
+            add_airport(airport_code)
+
+        # Buscar de Tomorrow.io
+        results = []
+        for airport_code in airports:
+            result = await fetch_taf_tomorrow(airport_code)
+            results.append(result)
+
+        success_count = sum(1 for r in results if r.get('status') == 'sucesso')
+        error_count = sum(1 for r in results if r.get('status') == 'erro')
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'success': True,
+                'provider': 'tomorrow.io',
+                'total_airports': len(airports),
+                'success': success_count,
+                'error': error_count,
+                'results': results
+            }
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                'success': False,
+                'error': str(e)
+            }
+        )
+
+@app.get("/api/taf/redemet")
 async def fetch_redemet_provider():
     """
-    Busca TAF de 30 aeroportos da API REDEMET
+    Busca TAF da API REDEMET para aeroportos do arquivo aiports.txt
     """
-    from main import fetch_all_airports_redemet
-    results = await fetch_all_airports_redemet()
+    import os
+    from main import fetch_taf_redemet, read_airports_from_file, add_airport, get_airport_id
 
-    success_count = sum(1 for r in results if r.get('status') == 'sucesso')
-    error_count = sum(1 for r in results if r.get('status') == 'erro')
+    file_path = 'aiports.txt'
 
-    return JSONResponse(
-        status_code=200,
-        content={
-            'success': True,
-            'provider': 'redemet',
-            'total_airports': 30,
-            'success': success_count,
-            'error': error_count,
-            'results': results
-        }
-    )
+    if not os.path.exists(file_path):
+        return JSONResponse(
+            status_code=404,
+            content={
+                'success': False,
+                'error': f'Arquivo não encontrado: {file_path}'
+            }
+        )
 
-@app.get("/taf/batch")
+    try:
+        airports = read_airports_from_file(file_path)
+
+        # Inicializar aeroportos
+        for airport_code in airports:
+            add_airport(airport_code)
+
+        # Buscar de REDEMET
+        results = []
+        for airport_code in airports:
+            result = await fetch_taf_redemet(airport_code)
+            results.append(result)
+
+        success_count = sum(1 for r in results if r.get('status') == 'sucesso')
+        error_count = sum(1 for r in results if r.get('status') == 'erro')
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'success': True,
+                'provider': 'redemet',
+                'total_airports': len(airports),
+                'success': success_count,
+                'error': error_count,
+                'results': results
+            }
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                'success': False,
+                'error': str(e)
+            }
+        )
+
+@app.get("/api/taf/batch")
 async def fetch_batch():
     """
-    Busca TAF de ambas as APIs (Tomorrow.io + REDEMET)
+    Busca TAF de ambas as APIs (Tomorrow.io + REDEMET) para aeroportos do arquivo aiports.txt
     """
-    from main import fetch_all_airports_tomorrow, fetch_all_airports_redemet
+    import os
+    from main import fetch_taf_tomorrow, fetch_taf_redemet, read_airports_from_file, add_airport
 
-    tomorrow_results = await fetch_all_airports_tomorrow()
-    redemet_results = await fetch_all_airports_redemet()
+    file_path = 'aiports.txt'
 
-    tomorrow_success = sum(1 for r in tomorrow_results if r.get('status') == 'sucesso')
-    redemet_success = sum(1 for r in redemet_results if r.get('status') == 'sucesso')
-
-    return JSONResponse(
-        status_code=200,
-        content={
-            'success': True,
-            'message': 'Busca concluída em ambas as APIs',
-            'total_airports': 60,
-            'providers': {
-                'tomorrow': {
-                    'success': tomorrow_success,
-                    'error': 30 - tomorrow_success
-                },
-                'redemet': {
-                    'success': redemet_success,
-                    'error': 30 - redemet_success
-                }
-            },
-            'results': {
-                'tomorrow': tomorrow_results,
-                'redemet': redemet_results
+    if not os.path.exists(file_path):
+        return JSONResponse(
+            status_code=404,
+            content={
+                'success': False,
+                'error': f'Arquivo não encontrado: {file_path}'
             }
-        }
-    )
+        )
 
-@app.get("/taf/file")
+    try:
+        airports = read_airports_from_file(file_path)
+
+        # Inicializar aeroportos
+        for airport_code in airports:
+            add_airport(airport_code)
+
+        # Buscar de ambas as APIs
+        tomorrow_results = []
+        redemet_results = []
+
+        for airport_code in airports:
+            tomorrow_results.append(await fetch_taf_tomorrow(airport_code))
+            redemet_results.append(await fetch_taf_redemet(airport_code))
+
+        tomorrow_success = sum(1 for r in tomorrow_results if r.get('status') == 'sucesso')
+        redemet_success = sum(1 for r in redemet_results if r.get('status') == 'sucesso')
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'success': True,
+                'message': 'Busca concluída em ambas as APIs',
+                'total_airports': len(airports),
+                'providers': {
+                    'tomorrow': {
+                        'success': tomorrow_success,
+                        'error': len(airports) - tomorrow_success
+                    },
+                    'redemet': {
+                        'success': redemet_success,
+                        'error': len(airports) - redemet_success
+                    }
+                },
+                'results': {
+                    'tomorrow': tomorrow_results,
+                    'redemet': redemet_results
+                }
+            }
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                'success': False,
+                'error': str(e)
+            }
+        )
+
+@app.get("/api/taf/file")
 async def fetch_from_file(file_path: str = None):
     """
     Busca TAF de aeroportos listados em um arquivo .txt
@@ -186,7 +282,7 @@ async def fetch_from_file(file_path: str = None):
     Parâmetros:
     - file_path: caminho do arquivo .txt com códigos ICAO
 
-    Exemplo: GET /taf/file?file_path=aeroportos.txt
+    Exemplo: GET /api/taf/file?file_path=aeroportos.txt
     """
     from main import fetch_airports_from_file_both_apis
 
@@ -196,7 +292,7 @@ async def fetch_from_file(file_path: str = None):
             content={
                 'success': False,
                 'error': 'Parâmetro file_path é obrigatório',
-                'example': '/taf/file?file_path=aeroportos.txt'
+                'example': '/api/taf/file?file_path=aeroportos.txt'
             }
         )
 
@@ -228,7 +324,7 @@ async def fetch_from_file(file_path: str = None):
             }
         )
 
-@app.get("/taf/cron/fetch")
+@app.get("/api/taf/cron/fetch")
 async def cron_fetch_from_file():
     """
     Endpoint de cron para buscar TAF de aeroportos (procura aiports.txt)

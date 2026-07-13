@@ -128,15 +128,14 @@ def get_airport_id(iata_code: str):
         print(f"Erro ao buscar aeroporto: {e}")
         raise
 
-def save_taf(timestamp_str: str, taf_data: str, airport_id: int = None, source: str = None):
+def save_taf_tomorrow(timestamp_str: str, taf_data: str, airport_id: int = None):
     """
-    Salva timestamp e TAF no banco de dados
+    Salva TAF da Tomorrow.io no banco de dados
 
     Args:
         timestamp_str: timestamp em ISO format
         taf_data: conteúdo do TAF
         airport_id: ID do aeroporto
-        source: fonte dos dados (tomorrow ou redemet)
 
     Returns:
         ID do registro inserido
@@ -147,11 +146,11 @@ def save_taf(timestamp_str: str, taf_data: str, airport_id: int = None, source: 
 
         cursor.execute(
             '''
-            INSERT INTO tafs (airport_id, timestamp, taf_data, source)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO taf_tomorrow (airport_id, timestamp, taf_data)
+            VALUES (%s, %s, %s)
             RETURNING id
             ''',
-            (airport_id, timestamp_str, taf_data, source)
+            (airport_id, timestamp_str, taf_data)
         )
 
         record_id = cursor.fetchone()[0]
@@ -159,10 +158,50 @@ def save_taf(timestamp_str: str, taf_data: str, airport_id: int = None, source: 
         cursor.close()
         conn.close()
 
-        print(f"TAF salvo com sucesso. ID: {record_id}")
+        print(f"✓ TAF Tomorrow salvo. ID: {record_id}")
         return record_id
     except Exception as e:
-        print(f"Erro ao salvar TAF: {e}")
+        print(f"✗ Erro ao salvar TAF Tomorrow: {e}")
+        raise
+
+def save_taf_redemet(timestamp_str: str, taf_data: str, airport_id: int = None,
+                     validade_inicial: str = None, validade_final: str = None, recebimento: str = None):
+    """
+    Salva TAF da REDEMET no banco de dados
+
+    Args:
+        timestamp_str: timestamp em ISO format
+        taf_data: conteúdo do TAF
+        airport_id: ID do aeroporto
+        validade_inicial: data/hora de validade inicial
+        validade_final: data/hora de validade final
+        recebimento: data/hora de recebimento
+
+    Returns:
+        ID do registro inserido
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            INSERT INTO taf_redemet (airport_id, timestamp, taf_data, validade_inicial, validade_final, recebimento)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+            ''',
+            (airport_id, timestamp_str, taf_data, validade_inicial, validade_final, recebimento)
+        )
+
+        record_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        print(f"✓ TAF REDEMET salvo. ID: {record_id}")
+        return record_id
+    except Exception as e:
+        print(f"✗ Erro ao salvar TAF REDEMET: {e}")
         raise
 
 def get_latest_tafs(limit: int = 10):
