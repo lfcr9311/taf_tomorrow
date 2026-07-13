@@ -33,7 +33,17 @@ DB_PASSWORD=sua_senha
 createdb taf_db
 ```
 
-### 4. Inicializar tabelas
+### 4. Executar Migrations
+
+```bash
+# Ver status das migrations
+python manage_migrations.py status
+
+# Executar todas as migrations pendentes
+python manage_migrations.py migrate
+```
+
+Ou inicializar manualmente:
 
 ```bash
 python init_database.py
