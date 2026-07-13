@@ -1,6 +1,7 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
+import time
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -230,3 +231,56 @@ def get_latest_tafs(limit: int = 10):
     except Exception as e:
         print(f"Erro ao buscar TAFs: {e}")
         raise
+
+def wake_up_database(max_retries: int = 3, retry_delay: int = 2):
+    """
+    Acorda o banco Neon se estiver em autosuspend
+    Tenta conectar múltiplas vezes com delay entre tentativas
+
+    Args:
+        max_retries: número de tentativas
+        retry_delay: segundos entre tentativas
+
+    Returns:
+        dict com status da operação
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"[{attempt}/{max_retries}] Acordando banco de dados...")
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            cursor.close()
+            conn.close()
+            print("✓ Banco de dados acordado com sucesso!")
+            return {
+                'success': True,
+                'message': 'Database is now awake',
+                'attempts': attempt
+            }
+        except psycopg2.OperationalError as e:
+            if attempt < max_retries:
+                print(f"  ⏳ Banco ainda está dormindo... aguardando {retry_delay}s")
+                time.sleep(retry_delay)
+            else:
+                print(f"✗ Falha ao acordar banco após {max_retries} tentativas: {e}")
+                return {
+                    'success': False,
+                    'message': f'Failed to wake database after {max_retries} attempts',
+                    'error': str(e),
+                    'attempts': attempt
+                }
+        except Exception as e:
+            print(f"✗ Erro inesperado: {e}")
+            return {
+                'success': False,
+                'message': 'Unexpected error',
+                'error': str(e),
+                'attempts': attempt
+            }
+
+    return {
+        'success': False,
+        'message': 'Max retries exceeded',
+        'attempts': max_retries
+    }

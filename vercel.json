@@ -1,32 +1,48 @@
 {
   "crons": [
     {
+      "path": "/api/wake-up",
+      "schedule": "29 3 * * *"
+    },
+    {
       "path": "/api/taf/tomorrow",
       "schedule": "30 3 * * *"
-    },
-    {
-      "path": "/api/taf/tomorrow",
-      "schedule": "30 9 * * *"
-    },
-    {
-      "path": "/api/taf/tomorrow",
-      "schedule": "30 15 * * *"
-    },
-    {
-      "path": "/api/taf/tomorrow",
-      "schedule": "30 21 * * *"
     },
     {
       "path": "/api/taf/redemet",
       "schedule": "45 3 * * *"
     },
     {
+      "path": "/api/wake-up",
+      "schedule": "29 9 * * *"
+    },
+    {
+      "path": "/api/taf/tomorrow",
+      "schedule": "30 9 * * *"
+    },
+    {
       "path": "/api/taf/redemet",
       "schedule": "45 9 * * *"
     },
     {
+      "path": "/api/wake-up",
+      "schedule": "29 15 * * *"
+    },
+    {
+      "path": "/api/taf/tomorrow",
+      "schedule": "30 15 * * *"
+    },
+    {
       "path": "/api/taf/redemet",
       "schedule": "45 15 * * *"
+    },
+    {
+      "path": "/api/wake-up",
+      "schedule": "29 21 * * *"
+    },
+    {
+      "path": "/api/taf/tomorrow",
+      "schedule": "30 21 * * *"
     },
     {
       "path": "/api/taf/redemet",

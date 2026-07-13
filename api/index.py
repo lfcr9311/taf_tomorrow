@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from main import fetch_taf
-from database import init_db, get_latest_tafs
+from database import init_db, get_latest_tafs, wake_up_database
 
 app = FastAPI()
 
@@ -42,6 +42,24 @@ async def health_check():
 async def ping():
     """Verificar status da API"""
     return {'status': 'healthy', 'service': 'taf-service'}
+
+@app.get("/api/wake-up")
+async def wake_up():
+    """
+    Acorda o banco Neon do autosuspend
+    Chamado pelo cron job antes de executar buscas
+    """
+    result = wake_up_database(max_retries=3, retry_delay=2)
+
+    status_code = 200 if result['success'] else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            'success': result['success'],
+            'message': result['message'],
+            'attempts': result.get('attempts', 0)
+        }
+    )
 
 @app.get("/api/taf/single")
 async def get_single_taf():
