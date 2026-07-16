@@ -251,9 +251,9 @@ async def fetch_airports_from_file_both_apis(filepath: str):
     Returns:
         Dicionário com resultados de ambas as APIs
     """
+    import asyncio
+
     airports = read_airports_from_file(filepath)
-    tomorrow_results = []
-    redemet_results = []
 
     print(f"\n{'='*60}")
     print(f"Buscando TAFs de {len(airports)} aeroportos")
@@ -263,36 +263,62 @@ async def fetch_airports_from_file_both_apis(filepath: str):
     for airport_code in airports:
         add_airport(airport_code)
 
-    # Buscar da Tomorrow.io
-    print("--- Tomorrow.io ---")
-    for airport_code in airports:
-        result = await fetch_taf_tomorrow(airport_code)
-        status = "✓" if result.get('status') == 'sucesso' else "✗"
-        print(f"{status} {airport_code}: {result.get('status')}")
-        tomorrow_results.append(result)
+    # Buscar de ambas as APIs em paralelo
+    print("--- Tomorrow.io & REDEMET (paralelo) ---")
+    tomorrow_results = await asyncio.gather(
+        *[fetch_taf_tomorrow(airport_code) for airport_code in airports],
+        return_exceptions=True
+    )
+    redemet_results = await asyncio.gather(
+        *[fetch_taf_redemet(airport_code) for airport_code in airports],
+        return_exceptions=True
+    )
 
-    # Buscar da REDEMET
-    print("\n--- REDEMET ---")
-    for airport_code in airports:
-        result = await fetch_taf_redemet(airport_code)
-        status = "✓" if result.get('status') == 'sucesso' else "✗"
-        total = result.get('total_records', 0)
-        print(f"{status} {airport_code}: {result.get('status')} ({total} registros)")
-        redemet_results.append(result)
+    # Processar resultados e imprimir status
+    processed_tomorrow = []
+    for airport_code, result in zip(airports, tomorrow_results):
+        if isinstance(result, Exception):
+            processed_result = {
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'status': 'erro',
+                'location': airport_code,
+                'error': str(result)
+            }
+        else:
+            processed_result = result
+        status = "✓" if processed_result.get('status') == 'sucesso' else "✗"
+        print(f"{status} Tomorrow - {airport_code}: {processed_result.get('status')}")
+        processed_tomorrow.append(processed_result)
+
+    processed_redemet = []
+    for airport_code, result in zip(airports, redemet_results):
+        if isinstance(result, Exception):
+            processed_result = {
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'status': 'erro',
+                'location': airport_code,
+                'error': str(result)
+            }
+        else:
+            processed_result = result
+        status = "✓" if processed_result.get('status') == 'sucesso' else "✗"
+        total = processed_result.get('total_records', 0)
+        print(f"{status} REDEMET - {airport_code}: {processed_result.get('status')} ({total} registros)")
+        processed_redemet.append(processed_result)
 
     # Contabilizar resultados
-    tomorrow_success = sum(1 for r in tomorrow_results if r.get('status') == 'sucesso')
-    tomorrow_error = len(tomorrow_results) - tomorrow_success
+    tomorrow_success = sum(1 for r in processed_tomorrow if r.get('status') == 'sucesso')
+    tomorrow_error = len(processed_tomorrow) - tomorrow_success
 
-    redemet_success = sum(1 for r in redemet_results if r.get('status') == 'sucesso')
-    redemet_error = len(redemet_results) - redemet_success
+    redemet_success = sum(1 for r in processed_redemet if r.get('status') == 'sucesso')
+    redemet_error = len(processed_redemet) - redemet_success
 
     return {
         'airports_count': len(airports),
         'tomorrow': {
             'success': tomorrow_success,
             'error': tomorrow_error,
-            'results': tomorrow_results
+            'results': processed_tomorrow
         },
         'redemet': {
             'success': redemet_success,

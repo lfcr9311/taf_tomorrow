@@ -8,12 +8,13 @@ app = FastAPI()
 @app.on_event("startup")
 async def startup_event():
     """Inicializa banco de dados e executa migrations no startup"""
-    try:
-        print("\n" + "="*60)
-        print("🚀 Iniciando API - TAF Service")
-        print("="*60)
+    print("\n" + "="*60)
+    print("🚀 Iniciando API - TAF Service")
+    print("="*60)
 
-        print("[1/2] Inicializando banco de dados...")
+    # Inicializar banco de dados (não-fatal)
+    print("[1/2] Inicializando banco de dados...")
+    try:
         init_db()
         print("✓ Banco de dados inicializado")
 
@@ -23,15 +24,17 @@ async def startup_event():
         import os
         sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
         from manage_migrations import migrate
-        migrate()
-        print("✓ Migrations executadas")
-
-        print("="*60)
-        print("✓ API pronta para receber requisições!")
-        print("="*60 + "\n")
+        if migrate():
+            print("✓ Migrations executadas")
+        else:
+            print("⚠ Algumas migrations falharam (continuando)")
     except Exception as e:
-        print(f"\n✗ Erro ao inicializar: {e}\n")
-        raise
+        print(f"⚠ Aviso ao inicializar banco de dados: {e}")
+        print("  A API continuará funcionando, mas algumas funcionalidades podem não estar disponíveis")
+
+    print("="*60)
+    print("✓ API pronta para receber requisições!")
+    print("="*60 + "\n")
 
 @app.get("/")
 async def health_check():
@@ -119,6 +122,7 @@ async def fetch_tomorrow_provider():
     """
     Busca TAF da API Tomorrow.io para aeroportos do arquivo aiports.txt
     """
+    import asyncio
     import os
     from main import fetch_taf_tomorrow, read_airports_from_file, add_airport, get_airport_id
 
@@ -140,11 +144,14 @@ async def fetch_tomorrow_provider():
         for airport_code in airports:
             add_airport(airport_code)
 
-        # Buscar de Tomorrow.io
-        results = []
-        for airport_code in airports:
-            result = await fetch_taf_tomorrow(airport_code)
-            results.append(result)
+        # Buscar de Tomorrow.io em paralelo
+        results = await asyncio.gather(
+            *[fetch_taf_tomorrow(airport_code) for airport_code in airports],
+            return_exceptions=True
+        )
+
+        # Filtrar exceções
+        results = [r for r in results if not isinstance(r, Exception)]
 
         success_count = sum(1 for r in results if r.get('status') == 'sucesso')
         error_count = sum(1 for r in results if r.get('status') == 'erro')
@@ -174,6 +181,7 @@ async def fetch_redemet_provider():
     """
     Busca TAF da API REDEMET para aeroportos do arquivo aiports.txt
     """
+    import asyncio
     import os
     from main import fetch_taf_redemet, read_airports_from_file, add_airport, get_airport_id
 
@@ -195,11 +203,14 @@ async def fetch_redemet_provider():
         for airport_code in airports:
             add_airport(airport_code)
 
-        # Buscar de REDEMET
-        results = []
-        for airport_code in airports:
-            result = await fetch_taf_redemet(airport_code)
-            results.append(result)
+        # Buscar de REDEMET em paralelo
+        results = await asyncio.gather(
+            *[fetch_taf_redemet(airport_code) for airport_code in airports],
+            return_exceptions=True
+        )
+
+        # Filtrar exceções
+        results = [r for r in results if not isinstance(r, Exception)]
 
         success_count = sum(1 for r in results if r.get('status') == 'sucesso')
         error_count = sum(1 for r in results if r.get('status') == 'erro')
@@ -229,6 +240,7 @@ async def fetch_batch():
     """
     Busca TAF de ambas as APIs (Tomorrow.io + REDEMET) para aeroportos do arquivo aiports.txt
     """
+    import asyncio
     import os
     from main import fetch_taf_tomorrow, fetch_taf_redemet, read_airports_from_file, add_airport
 
@@ -250,13 +262,19 @@ async def fetch_batch():
         for airport_code in airports:
             add_airport(airport_code)
 
-        # Buscar de ambas as APIs
-        tomorrow_results = []
-        redemet_results = []
+        # Buscar de ambas as APIs em paralelo
+        tomorrow_results = await asyncio.gather(
+            *[fetch_taf_tomorrow(airport_code) for airport_code in airports],
+            return_exceptions=True
+        )
+        redemet_results = await asyncio.gather(
+            *[fetch_taf_redemet(airport_code) for airport_code in airports],
+            return_exceptions=True
+        )
 
-        for airport_code in airports:
-            tomorrow_results.append(await fetch_taf_tomorrow(airport_code))
-            redemet_results.append(await fetch_taf_redemet(airport_code))
+        # Filtrar exceções
+        tomorrow_results = [r for r in tomorrow_results if not isinstance(r, Exception)]
+        redemet_results = [r for r in redemet_results if not isinstance(r, Exception)]
 
         tomorrow_success = sum(1 for r in tomorrow_results if r.get('status') == 'sucesso')
         redemet_success = sum(1 for r in redemet_results if r.get('status') == 'sucesso')
@@ -270,11 +288,11 @@ async def fetch_batch():
                 'providers': {
                     'tomorrow': {
                         'success': tomorrow_success,
-                        'error': len(airports) - tomorrow_success
+                        'error': len(tomorrow_results) - tomorrow_success
                     },
                     'redemet': {
                         'success': redemet_success,
-                        'error': len(airports) - redemet_success
+                        'error': len(redemet_results) - redemet_success
                     }
                 },
                 'results': {
