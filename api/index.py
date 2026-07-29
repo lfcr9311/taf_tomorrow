@@ -7,21 +7,23 @@ app = FastAPI()
 
 @app.on_event("startup")
 async def startup_event():
-    """Inicializa banco de dados e executa migrations no startup"""
+    """Inicializa banco de dados, executa migrations e backfill de METAR no startup"""
+    import asyncio
+    import os
+    import sys
+
     print("\n" + "="*60)
     print("🚀 Iniciando API - TAF Service")
     print("="*60)
 
     # Inicializar banco de dados (não-fatal)
-    print("[1/2] Inicializando banco de dados...")
+    print("[1/3] Inicializando banco de dados...")
     try:
         init_db()
         print("✓ Banco de dados inicializado")
 
         # Executar migrations
-        print("[2/2] Executando migrations...")
-        import sys
-        import os
+        print("[2/3] Executando migrations...")
         sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
         from manage_migrations import migrate
         if migrate():
@@ -31,6 +33,56 @@ async def startup_event():
     except Exception as e:
         print(f"⚠ Aviso ao inicializar banco de dados: {e}")
         print("  A API continuará funcionando, mas algumas funcionalidades podem não estar disponíveis")
+
+    # Backfill de METAR
+    print("[3/3] Iniciando backfill de METAR...")
+    try:
+        from main import read_airports_from_file, fetch_metar_redemet
+        from database import add_airport, get_airport_id, get_taf_time_range
+
+        file_path = 'aiports.txt'
+        if os.path.exists(file_path):
+            airports = read_airports_from_file(file_path)
+            backfill_count = 0
+
+            # Semáforo para limitar concorrência
+            semaphore = asyncio.Semaphore(16)
+
+            async def backfill_single(airport_code):
+                async with semaphore:
+                    try:
+                        airport_id = get_airport_id(airport_code)
+                        if not airport_id:
+                            airport_id = add_airport(airport_code)
+
+                        min_ts, max_ts = get_taf_time_range(airport_id)
+                        if not min_ts or not max_ts:
+                            return 0
+
+                        data_ini = min_ts.strftime('%Y%m%d%H')
+                        data_fim = max_ts.strftime('%Y%m%d%H')
+
+                        result = await fetch_metar_redemet(airport_code, data_ini, data_fim)
+                        if result.get('status') == 'sucesso':
+                            return result.get('total_records', 0)
+                    except Exception as e:
+                        print(f"  ⚠ Erro em {airport_code}: {str(e)[:50]}")
+                    return 0
+
+            # Executar backfill para todos os aeroportos
+            results = await asyncio.gather(
+                *[backfill_single(airport) for airport in airports],
+                return_exceptions=True
+            )
+
+            backfill_count = sum(r for r in results if isinstance(r, int))
+            print(f"✓ Backfill METAR concluído: {backfill_count} METARs salvos")
+        else:
+            print(f"⚠ Arquivo {file_path} não encontrado, pulando backfill")
+
+    except Exception as e:
+        print(f"⚠ Erro ao fazer backfill de METAR: {e}")
+        print("  A API continuará funcionando normalmente")
 
     print("="*60)
     print("✓ API pronta para receber requisições!")
@@ -400,6 +452,162 @@ async def cron_fetch_from_file():
                         'error': results['redemet']['error']
                     }
                 }
+            }
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                'success': False,
+                'error': str(e)
+            }
+        )
+
+@app.get("/api/metar/backfill")
+async def metar_backfill():
+    """
+    Busca histórico de METAR dos últimos 20 dias para todos os aeroportos
+    Executa em chunks de 150 por página
+    """
+    import asyncio
+    import os
+    from main import read_airports_from_file, fetch_metar_redemet
+    from database import add_airport, get_airport_id, get_taf_time_range
+
+    file_path = 'aiports.txt'
+
+    if not os.path.exists(file_path):
+        return JSONResponse(
+            status_code=404,
+            content={
+                'success': False,
+                'error': f'Arquivo não encontrado: {file_path}'
+            }
+        )
+
+    try:
+        airports = read_airports_from_file(file_path)
+        results = []
+        total_metars = 0
+
+        # Processar cada aeroporto
+        for airport_code in airports:
+            try:
+                airport_id = get_airport_id(airport_code)
+                if not airport_id:
+                    airport_id = add_airport(airport_code)
+
+                # Obter intervalo de tempo dos TAFs
+                min_ts, max_ts = get_taf_time_range(airport_id)
+
+                if not min_ts or not max_ts:
+                    continue
+
+                # Converter para formato REDEMET
+                data_ini = min_ts.strftime('%Y%m%d%H')
+                data_fim = max_ts.strftime('%Y%m%d%H')
+
+                # Buscar METARs
+                result = await fetch_metar_redemet(airport_code, data_ini, data_fim)
+
+                if result.get('status') == 'sucesso':
+                    count = result.get('total_records', 0)
+                    total_metars += count
+                    results.append({
+                        'airport': airport_code,
+                        'metar_count': count,
+                        'pages': result.get('pages', 1),
+                        'status': 'ok'
+                    })
+
+            except Exception as e:
+                results.append({
+                    'airport': airport_code,
+                    'error': str(e),
+                    'status': 'erro'
+                })
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'success': True,
+                'message': 'Backfill METAR concluído',
+                'airports_processed': len(results),
+                'total_metars': total_metars,
+                'results': results
+            }
+        )
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                'success': False,
+                'error': str(e)
+            }
+        )
+
+@app.get("/api/metar/report")
+async def generate_metar_report():
+    """
+    Gera relatório PDF de assertividade TAF vs METAR
+    Retorna URL do arquivo gerado
+    """
+    import os
+    import subprocess
+    from datetime import datetime, timezone
+
+    try:
+        # Executar script de geração de relatório
+        result = subprocess.run(
+            ['/usr/bin/python3', 'generate_report.py'],
+            cwd='/home/luisrossi/Documents/Azul/taf_tomorrow',
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+
+        if result.returncode != 0:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    'success': False,
+                    'error': 'Erro ao gerar relatório',
+                    'details': result.stderr
+                }
+            )
+
+        # Procurar arquivo PDF gerado
+        cwd = '/home/luisrossi/Documents/Azul/taf_tomorrow'
+        pdf_files = [f for f in os.listdir(cwd) if f.startswith('report_assertividade_') and f.endswith('.pdf')]
+
+        if pdf_files:
+            latest_pdf = max(pdf_files, key=lambda f: os.path.getctime(os.path.join(cwd, f)))
+            return JSONResponse(
+                status_code=200,
+                content={
+                    'success': True,
+                    'message': 'Relatório gerado com sucesso',
+                    'file': latest_pdf,
+                    'timestamp': datetime.now(timezone.utc).isoformat()
+                }
+            )
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    'success': False,
+                    'error': 'Nenhum PDF foi gerado',
+                    'output': result.stdout
+                }
+            )
+
+    except subprocess.TimeoutExpired:
+        return JSONResponse(
+            status_code=504,
+            content={
+                'success': False,
+                'error': 'Timeout ao gerar relatório (> 5 min)'
             }
         )
     except Exception as e:
