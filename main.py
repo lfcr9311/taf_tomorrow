@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import json
 import os
 from dotenv import load_dotenv
-from database import init_db, save_taf_tomorrow, save_taf_redemet, add_airport, get_airport_id
+from database import init_db, save_taf_tomorrow, save_taf_redemet, add_airport, get_airport_id, save_metar_redemet, save_metar_batch, get_taf_time_range
 
 load_dotenv()
 
@@ -179,6 +179,132 @@ async def fetch_taf_redemet(location: str, data_ini: str = None, data_fim: str =
                 'status': 'sucesso',
                 'location': location,
                 'message': 'Nenhum TAF encontrado',
+                'data': []
+            }
+
+    except requests.exceptions.RequestException as error:
+        return {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'status': 'erro',
+            'location': location,
+            'error': str(error)
+        }
+
+async def fetch_metar_redemet(location: str, data_ini: str = None, data_fim: str = None):
+    """
+    Busca METAR da API REDEMET com paginação e salva em metar_redemet
+
+    Args:
+        location: código ICAO do aeroporto (ex: SBBR, SBGL)
+        data_ini: data inicial no formato YYYYMMDDHH (opcional)
+        data_fim: data final no formato YYYYMMDDHH (opcional)
+
+    Returns:
+        Dict com status, total_records, e dados salvos
+    """
+    try:
+        api_url = os.getenv('REDEMET_METAR_API_URL', 'https://api-redemet.decea.mil.br/mensagens/metar')
+        api_key = os.getenv('REDEMET_API_KEY')
+
+        if not api_key:
+            return {
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'status': 'erro',
+                'location': location,
+                'error': 'REDEMET_API_KEY não configurada no .env'
+            }
+
+        url = f"{api_url}/{location}"
+
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        }
+
+        timestamp = datetime.now(timezone.utc).isoformat()
+        all_results = []
+        total_records = 0
+        page = 1
+
+        # Paginar até obter todos os registros (máximo 150 por página)
+        while True:
+            params = {
+                'api_key': api_key,
+                'fim_linha': 'texto',
+                'page_tam': 150,
+                'page': page
+            }
+
+            if data_ini:
+                params['data_ini'] = data_ini
+            if data_fim:
+                params['data_fim'] = data_fim
+
+            response = requests.get(url, params=params, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # Processar resposta da REDEMET
+            if not (data.get('status') and data.get('data') and data.get('data').get('data')):
+                break
+
+            metars_list = data.get('data').get('data')
+            if not metars_list:
+                break
+
+            airport_id = get_airport_id(location)
+
+            # Preparar batch para insert
+            batch_records = []
+            for metar_record in metars_list:
+                metar_text = metar_record.get('mens', '')
+
+                if metar_text and airport_id:
+                    batch_records.append({
+                        'airport_id': airport_id,
+                        'timestamp': timestamp,
+                        'metar_data': metar_text,
+                        'observacao': metar_record.get('validade_inicial'),
+                        'recebimento': metar_record.get('recebimento')
+                    })
+
+                    all_results.append({
+                        'metar_data': metar_text,
+                        'observacao': metar_record.get('validade_inicial'),
+                        'recebimento': metar_record.get('recebimento'),
+                        'database_id': None
+                    })
+
+            # Inserir em batch
+            if batch_records:
+                save_metar_batch(batch_records)
+
+            total_records += len(metars_list)
+
+            # Verificar se há próxima página
+            next_page_url = data.get('data', {}).get('next_page_url')
+            if not next_page_url:
+                break
+
+            page += 1
+
+        if all_results:
+            return {
+                'timestamp': timestamp,
+                'status': 'sucesso',
+                'location': location,
+                'total_records': total_records,
+                'pages': page,
+                'data': all_results
+            }
+        else:
+            return {
+                'timestamp': timestamp,
+                'status': 'sucesso',
+                'location': location,
+                'message': 'Nenhum METAR encontrado',
+                'total_records': 0,
                 'data': []
             }
 

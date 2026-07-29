@@ -232,6 +232,126 @@ def get_latest_tafs(limit: int = 10):
         print(f"Erro ao buscar TAFs: {e}")
         raise
 
+def save_metar_redemet(timestamp_str: str, metar_data: str, airport_id: int = None,
+                       observacao: str = None, recebimento: str = None):
+    """
+    Salva METAR da REDEMET no banco de dados (single)
+
+    Args:
+        timestamp_str: timestamp de captura em ISO format
+        metar_data: conteúdo do METAR
+        airport_id: ID do aeroporto
+        observacao: timestamp da observação (validade_inicial da REDEMET)
+        recebimento: timestamp de recebimento
+
+    Returns:
+        ID do registro inserido
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            INSERT INTO metar_redemet (airport_id, timestamp, metar_data, observacao, recebimento)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+            ''',
+            (airport_id, timestamp_str, metar_data, observacao, recebimento)
+        )
+
+        record_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return record_id
+    except Exception as e:
+        print(f"✗ Erro ao salvar METAR REDEMET: {e}")
+        raise
+
+def save_metar_batch(metar_records: list):
+    """
+    Salva múltiplos METARs em uma única operação (muito mais rápido)
+
+    Args:
+        metar_records: Lista de dicts com {timestamp, metar_data, airport_id, observacao, recebimento}
+
+    Returns:
+        Número de registros inseridos
+    """
+    if not metar_records:
+        return 0
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Preparar valores para batch insert
+        values = []
+        for rec in metar_records:
+            values.append((
+                rec['airport_id'],
+                rec['timestamp'],
+                rec['metar_data'],
+                rec['observacao'],
+                rec['recebimento']
+            ))
+
+        # Executar batch insert
+        cursor.executemany(
+            '''
+            INSERT INTO metar_redemet (airport_id, timestamp, metar_data, observacao, recebimento)
+            VALUES (%s, %s, %s, %s, %s)
+            ''',
+            values
+        )
+
+        conn.commit()
+        count = cursor.rowcount
+        cursor.close()
+        conn.close()
+
+        return count
+    except Exception as e:
+        print(f"✗ Erro ao salvar METAR em batch: {e}")
+        raise
+
+def get_taf_time_range(airport_id: int):
+    """
+    Obtém intervalo de tempo (MIN/MAX) dos TAFs coletados de um aeroporto
+
+    Args:
+        airport_id: ID do aeroporto
+
+    Returns:
+        Tupla (min_timestamp, max_timestamp) ou (None, None) se não há TAFs
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT MIN(timestamp), MAX(timestamp)
+            FROM (
+                SELECT timestamp FROM taf_tomorrow WHERE airport_id = %s
+                UNION ALL
+                SELECT timestamp FROM taf_redemet WHERE airport_id = %s
+            ) tafs
+            ''',
+            (airport_id, airport_id)
+        )
+
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        return result if result and result[0] else (None, None)
+    except Exception as e:
+        print(f"Erro ao buscar intervalo de TAFs: {e}")
+        return (None, None)
+
 def wake_up_database(max_retries: int = 3, retry_delay: int = 2):
     """
     Acorda o banco Neon se estiver em autosuspend
